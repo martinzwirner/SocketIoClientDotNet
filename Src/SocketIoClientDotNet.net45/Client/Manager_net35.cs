@@ -212,9 +212,25 @@ namespace Quobject.SocketIoClientDotNet.Client
                 }
             }));
 
+            var closeSub = Client.On.Create(socket, Engine.EVENT_CLOSE, new ListenerImpl((data) =>
+            {
+                log.Info("close_on_connect");
+                Cleanup();
+                ReadyState = ReadyStateEnum.CLOSED;
+                EmitAll(EVENT_CONNECT_ERROR, data);
+
+                if (fn != null)
+                {
+                    var err = new SocketIOException("Connection error", data is Exception ? (Exception)data : null);
+                    fn.Call(err);
+                }
+                MaybeReconnectOnOpen();
+            }));
+
             var errorSub = Client.On.Create(socket, Engine.EVENT_ERROR, new ListenerImpl((data) =>
             {
                 log.Info("connect_error");
+                closeSub.Destroy(); // don't fire twice
                 Cleanup();
                 ReadyState = ReadyStateEnum.CLOSED;
                 EmitAll(EVENT_CONNECT_ERROR, data);
@@ -238,6 +254,7 @@ namespace Quobject.SocketIoClientDotNet.Client
 
                     log2.Info(string.Format("connect attempt timed out after {0}", timeout));
                     openSub.Destroy();
+                    closeSub.Destroy(); // don't fire twice
                     socket.Close();
                     socket.Emit(Engine.EVENT_ERROR, new SocketIOException("timeout"));
                     EmitAll(EVENT_CONNECT_TIMEOUT, timeout);
